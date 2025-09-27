@@ -46,7 +46,7 @@ pub enum TokenType {
     // Data
     Identifier(String),
     Number(f64),
-    String,
+    String(String),
 
     // Indentation
     Indent,
@@ -61,6 +61,8 @@ pub enum TokenType {
 pub struct Token {
     pub token_type: TokenType,
     pub literal: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 impl fmt::Display for Token {

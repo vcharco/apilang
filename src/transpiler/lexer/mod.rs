@@ -1,6 +1,5 @@
+use crate::transpiler::errors::LexerError;
 use crate::transpiler::token::{Token, TokenType};
-use crate::util::color;
-use std::fmt;
 use std::path::PathBuf;
 use std::str::Chars;
 
@@ -15,34 +14,6 @@ pub struct Lexer<'a> {
     token_queue: Vec<Token>,
     file_path: Option<PathBuf>,
     errors: Vec<LexerError>,
-}
-
-#[derive(Debug)]
-pub struct LexerError {
-    pub line: usize,
-    pub file: String,
-    pub error: String,
-    pub line_content: String,
-    pub char_index: usize,
-}
-
-impl fmt::Display for LexerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} Lexer error at {}, line {}: ",
-            color::error("[ERROR]"),
-            self.file,
-            self.line,
-        )?;
-        write!(f, "{}\n", self.error)?;
-
-        write!(f, "   └─> {}\n", self.line_content)?;
-        let pointer = " ".repeat(self.char_index) + "^";
-        write!(f, "       {}", color::bold(&pointer))?;
-
-        Ok(())
-    }
 }
 
 impl<'a> Lexer<'a> {
@@ -145,6 +116,8 @@ impl<'a> Lexer<'a> {
         Token {
             token_type,
             literal,
+            line: self.line_number,
+            column: self.current_position,
         }
     }
 
@@ -152,6 +125,8 @@ impl<'a> Lexer<'a> {
         Token {
             token_type,
             literal: literal.to_string(),
+            line: self.line_number,
+            column: self.current_position,
         }
     }
 
@@ -201,8 +176,10 @@ impl<'a> Lexer<'a> {
         }
 
         Token {
-            token_type: TokenType::String,
+            token_type: TokenType::String(literal.clone()),
             literal,
+            line: self.line_number,
+            column: self.current_position,
         }
     }
 
@@ -224,8 +201,10 @@ impl<'a> Lexer<'a> {
         }
 
         Token {
-            token_type: TokenType::String,
+            token_type: TokenType::String(literal.clone()),
             literal,
+            line: self.line_number,
+            column: self.current_position,
         }
     }
 

@@ -1,27 +1,33 @@
+pub mod errors;
 pub mod lexer;
+pub mod parser;
 pub mod token;
 
-use self::{lexer::Lexer, lexer::LexerError, token::Token, token::TokenType};
+use crate::transpiler::{
+    errors::{CompilerError, ReadFileError},
+    parser::core::parse,
+};
+
+use self::{lexer::Lexer, token::Token, token::TokenType};
 use std::{fs, path::PathBuf};
 
-pub fn process_file(file_path: &PathBuf) -> Result<Vec<Token>, Vec<LexerError>> {
+pub fn process_file(file_path: &PathBuf) -> Result<(), Vec<CompilerError>> {
+    let file_name = file_path.to_string_lossy().to_string();
+
     let content = match fs::read_to_string(file_path) {
         Ok(c) => c,
         Err(e) => {
-            let file_error = LexerError {
-                line: 0,
-                file: file_path.to_string_lossy().to_string(),
+            let file_error = ReadFileError {
+                file: file_name,
                 error: format!("Failed to read file: {}", e),
-                line_content: String::new(),
-                char_index: 0,
             };
-            return Err(vec![file_error]);
+            return Err(vec![file_error.into()]);
         }
     };
 
     let mut lexer = Lexer::new(&content, Some(file_path.clone()));
     let mut tokens = Vec::new();
-    let mut errors = Vec::new();
+    let mut compiler_errors: Vec<CompilerError> = Vec::new();
 
     loop {
         match lexer.next_token() {
@@ -35,15 +41,25 @@ pub fn process_file(file_path: &PathBuf) -> Result<Vec<Token>, Vec<LexerError>> 
             Ok(None) => {
                 break;
             }
-            Err(mut lexer_errors) => {
-                errors.append(&mut lexer_errors);
+            Err(lexer_errors) => {
+                for error in lexer_errors {
+                    compiler_errors.push(error.into());
+                }
             }
         }
     }
 
-    if !errors.is_empty() {
-        Err(errors)
-    } else {
-        Ok(tokens)
+    if let Err(e) = parse(
+        tokens,
+        &file_name,
+        content.lines().map(|s| s.to_string()).collect(),
+    ) {
+        compiler_errors.push(e.into());
     }
+
+    if !compiler_errors.is_empty() {
+        return Err(compiler_errors);
+    }
+
+    Ok(())
 }

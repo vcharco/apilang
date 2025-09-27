@@ -1,4 +1,6 @@
-use crate::token::{Token, TokenType};
+use crate::transpiler::token::{Token, TokenType};
+use crate::util::color;
+use std::fmt;
 use std::path::PathBuf;
 use std::str::Chars;
 
@@ -12,6 +14,35 @@ pub struct Lexer<'a> {
     indent_stack: Vec<usize>,
     token_queue: Vec<Token>,
     file_path: Option<PathBuf>,
+    errors: Vec<LexerError>,
+}
+
+#[derive(Debug)]
+pub struct LexerError {
+    pub line: usize,
+    pub file: String,
+    pub error: String,
+    pub line_content: String,
+    pub char_index: usize,
+}
+
+impl fmt::Display for LexerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} Lexer error at {}, line {}: ",
+            color::error("[ERROR]"),
+            self.file,
+            self.line,
+        )?;
+        write!(f, "{}\n", self.error)?;
+
+        write!(f, "   └─> {}\n", self.line_content)?;
+        let pointer = " ".repeat(self.char_index) + "^";
+        write!(f, "       {}", color::bold(&pointer))?;
+
+        Ok(())
+    }
 }
 
 impl<'a> Lexer<'a> {
@@ -25,6 +56,7 @@ impl<'a> Lexer<'a> {
             indent_stack: vec![0],
             token_queue: Vec::new(),
             file_path,
+            errors: Vec::new(),
         };
         lexer.advance_char();
         lexer
@@ -39,12 +71,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token(&mut self) -> Option<Token> {
+    pub fn next_token(&mut self) -> Result<Option<Token>, Vec<LexerError>> {
         if !self.token_queue.is_empty() {
-            return Some(self.token_queue.remove(0));
+            return Ok(Some(self.token_queue.remove(0)));
         }
 
         self.skip_whitespace_and_comments();
+
+        if !self.errors.is_empty() {
+            let errors = std::mem::take(&mut self.errors);
+            return Err(errors);
+        }
 
         if self.current_char.is_none() {
             while self.indent_stack.len() > 1 {
@@ -53,9 +90,9 @@ impl<'a> Lexer<'a> {
                     .push(self.new_token_literal(TokenType::Dedent, ""));
             }
             if !self.token_queue.is_empty() {
-                return Some(self.token_queue.remove(0));
+                return Ok(Some(self.token_queue.remove(0)));
             }
-            return Some(self.new_token_literal(TokenType::Eof, ""));
+            return Ok(Some(self.new_token_literal(TokenType::Eof, "")));
         }
 
         if self.current_char == Some('\n') {
@@ -63,7 +100,7 @@ impl<'a> Lexer<'a> {
             self.advance_char();
             self.process_indentation();
             if !self.token_queue.is_empty() {
-                return Some(self.token_queue.remove(0));
+                return Ok(Some(self.token_queue.remove(0)));
             }
             return self.next_token();
         }
@@ -72,32 +109,34 @@ impl<'a> Lexer<'a> {
             Some(':') => self.new_token(TokenType::Colon),
             Some('(') => self.new_token(TokenType::ParenOpen),
             Some(')') => self.new_token(TokenType::ParenClose),
+            Some('[') => self.new_token(TokenType::SquareBracketOpen),
+            Some(']') => self.new_token(TokenType::SquareBracketClose),
             Some(',') => self.new_token(TokenType::Comma),
             Some('=') => self.new_token(TokenType::Equal),
             Some('+') => self.new_token(TokenType::Plus),
             Some('"') => self.read_string_double_quote(),
             Some('\'') => self.read_string_single_quote(),
-            Some(ch) if ch.is_alphabetic() => {
+            Some(ch) if ch.is_alphabetic() || ch == '_' => {
                 let literal = self.read_identifier();
                 let token_type = self.lookup_identifier(&literal);
-                return Some(self.new_token_literal(token_type, &literal));
+                return Ok(Some(self.new_token_literal(token_type, &literal)));
             }
             Some(ch) if ch.is_numeric() => {
                 let literal = self.read_number();
                 let number_value = literal.parse::<f64>().unwrap_or(0.0);
                 let token_type = TokenType::Number(number_value);
-                return Some(self.new_token_literal(token_type, &literal));
+                return Ok(Some(self.new_token_literal(token_type, &literal)));
             }
             Some(ch) => {
-                self.report_error(&format!("Unexpected character: '{}'", ch.escape_default()));
+                self.report_error(&format!("Unexpected character '{}'.", ch.escape_default()));
                 self.new_token(TokenType::Illegal)
             }
             None => {
-                return Some(self.new_token_literal(TokenType::Eof, ""));
+                return Ok(Some(self.new_token_literal(TokenType::Eof, "")));
             }
         };
 
-        Some(token)
+        Ok(Some(token))
     }
 
     fn new_token(&mut self, token_type: TokenType) -> Token {
@@ -145,8 +184,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_string_double_quote(&mut self) -> Token {
-        self.advance_char();
         let start_pos = self.current_position;
+        self.advance_char();
         while let Some(ch) = self.current_char {
             if ch == '"' || ch == '\n' {
                 break;
@@ -168,8 +207,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_string_single_quote(&mut self) -> Token {
-        self.advance_char();
         let start_pos = self.current_position;
+        self.advance_char();
         while let Some(ch) = self.current_char {
             if ch == '\'' || ch == '\n' {
                 break;
@@ -199,6 +238,22 @@ impl<'a> Lexer<'a> {
             "delete" => TokenType::KeywordDelete,
             "options" => TokenType::KeywordOptions,
             "head" => TokenType::KeywordHead,
+            "model" => TokenType::KeywordModel,
+            "string" => TokenType::KeywordString,
+            "number" => TokenType::KeywordNumber,
+            "list" => TokenType::KeywordList,
+            "boolean" => TokenType::KeywordBoolean,
+            "min" => TokenType::KeywordMin,
+            "max" => TokenType::KeywordMax,
+            "email" => TokenType::KeywordEmail,
+            "phone" => TokenType::KeywordPhone,
+            "regex" => TokenType::KeywordRegex,
+            "public" => TokenType::KeywordPublic,
+            "private" => TokenType::KeywordPrivate,
+            "cache" => TokenType::KeywordCache,
+            "evict" => TokenType::KeywordEvict,
+            "throttle" => TokenType::KeywordThrottle,
+            "configure" => TokenType::KeywordConfigure,
             _ => TokenType::Identifier(identifier.to_string()),
         }
     }
@@ -242,7 +297,7 @@ impl<'a> Lexer<'a> {
 
         if indent_count > last_indent {
             if indent_count % 4 != 0 {
-                self.report_error("Indentation error: must be a multiple of 4 spaces.");
+                self.report_error("Indentation error (must be a multiple of 4 spaces).");
                 return;
             }
             self.indent_stack.push(indent_count);
@@ -256,21 +311,34 @@ impl<'a> Lexer<'a> {
             }
 
             if indent_count != *self.indent_stack.last().unwrap() {
-                self.report_error("Indentation error: mismatched indentation level.");
+                self.report_error("Indentation error (mismatched indentation level).");
             }
         }
     }
 
-    fn report_error(&self, message: &str) {
+    fn report_error(&mut self, message: &str) {
         let file_info = self
             .file_path
             .as_ref()
             .and_then(|p| p.to_str())
-            .unwrap_or("unknown file");
+            .unwrap_or("unknown file")
+            .to_string();
 
-        eprintln!(
-            "Error in file '{}', line {}: {}.",
-            file_info, self.line_number, message
-        );
+        let line_start = self.input[..self.current_position]
+            .rfind('\n')
+            .map_or(0, |i| i + 1);
+        let line_end = self.input[self.current_position..]
+            .find('\n')
+            .map_or(self.input.len(), |i| self.current_position + i);
+        let line_content = self.input[line_start..line_end].trim_end().to_string();
+        let char_index = self.current_position - line_start;
+
+        self.errors.push(LexerError {
+            line: self.line_number,
+            file: file_info,
+            error: message.to_string(),
+            line_content,
+            char_index: char_index - 1,
+        });
     }
 }

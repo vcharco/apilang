@@ -2,6 +2,7 @@ use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
+    // Keywords
     KeywordGet,
     KeywordPost,
     KeywordPatch,
@@ -9,17 +10,49 @@ pub enum TokenType {
     KeywordDelete,
     KeywordOptions,
     KeywordHead,
+    KeywordModel,
+
+    // Types
+    KeywordString,
+    KeywordNumber,
+    KeywordBoolean,
+    KeywordList,
+
+    // Validation
+    KeywordMin,
+    KeywordMax,
+    KeywordEmail,
+    KeywordPhone,
+    KeywordRegex,
+
+    // Modifiers
+    KeywordPrivate,
+    KeywordPublic,
+    KeywordCache,
+    KeywordEvict,
+    KeywordThrottle,
+    KeywordConfigure,
+
+    // Operators and delimiters
     ParenOpen,
     ParenClose,
+    SquareBracketOpen,
+    SquareBracketClose,
     Equal,
     Comma,
     Colon,
     Plus,
+
+    // Data
+    Identifier(String),
     Number(f64),
     String,
-    Identifier(String),
+
+    // Indentation
     Indent,
     Dedent,
+
+    // Errors and EOF
     Eof,
     Illegal,
 }
